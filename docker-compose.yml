@@ -1,0 +1,18 @@
+version: "3.8"
+
+services:
+  redis:
+    image: redis:7-alpine
+    container_name: scribble-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - ./data:/redis_data
+    command: redis-server --appendonly yes
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
