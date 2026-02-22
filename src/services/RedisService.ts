@@ -62,7 +62,7 @@ class RedisService {
 		try {
 			await this.client.ping();
 			this.isConnected = true;
-			logger.info("Successfully connected to Redis");
+			logger.info("✓ Redis connected");
 		} catch (error) {
 			logger.error("Failed to connect to Redis", error);
 			throw error;

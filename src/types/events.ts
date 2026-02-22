@@ -19,6 +19,10 @@ export interface JoinRoomPayload {
 	playerName: string;
 }
 
+export interface SelectWordPayload {
+	word: string;
+}
+
 export interface DrawPayload {
 	x: number;
 	y: number;

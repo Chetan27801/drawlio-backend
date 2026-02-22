@@ -1,8 +1,8 @@
-import { triggerAsyncId } from "async_hooks";
 import {
 	CreateRoomPayload,
 	JoinRoomPayload,
 	DrawPayload,
+	MessagePayload,
 } from "../types/events";
 import { isValidRoomCode } from "@utils/helpers";
 
@@ -55,15 +55,16 @@ export function validateDrawData(data: any): data is DrawPayload {
 	if (!data || typeof data !== "object") return false;
 
 	const requiredFields = ["x", "y", "prevX", "prevY", "color", "width"];
-	for (const x in requiredFields) {
-		if (data[x] === undefined) return false;
+	for (const x of requiredFields) {
+		if (data[x] === undefined) {
+			return false;
+		}
 	}
-
 	//validate coordinates
 	if (typeof data.x !== "number" || typeof data.y !== "number") return false;
+
 	if (typeof data.prevX !== "number" || typeof data.prevY !== "number")
 		return false;
-
 	//validate color(hex format)
 	if (typeof data.color !== "string" || !/^#[0-9A-F]{6}$/i.test(data.color))
 		return false;
@@ -74,8 +75,8 @@ export function validateDrawData(data: any): data is DrawPayload {
 	return true;
 }
 
-export function validateMessage(message: any): message is string {
-	if (!message || typeof message !== "string") return false;
-	const trimmed = message.trim();
+export function validateMessage(message: MessagePayload): message is MessagePayload {
+	if (!message.message || typeof message.message !== "string") return false;
+	const trimmed = message.message.trim();
 	return trimmed.length >= 1 && trimmed.length <= 200;
 }

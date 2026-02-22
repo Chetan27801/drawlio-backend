@@ -18,7 +18,6 @@ class Logger {
 				winston.format.splat(),
 				winston.format.json(),
 			),
-			defaultMeta: { service: "scribble-backend" },
 			transports: [
 				// Console transport
 				new winston.transports.Console({

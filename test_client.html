@@ -1,0 +1,310 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="UTF-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+		<title>Scribble WebSocket Test Client</title>
+		<script src="https://cdn.socket.io/4.6.1/socket.io.min.js"></script>
+		<style>
+			body {
+				font-family: Arial, sans-serif;
+				max-width: 800px;
+				margin: 50px auto;
+				padding: 20px;
+				background: #f5f5f5;
+			}
+			.container {
+				background: white;
+				padding: 20px;
+				border-radius: 8px;
+				box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+			}
+			h1 {
+				color: #333;
+				border-bottom: 2px solid #4caf50;
+				padding-bottom: 10px;
+			}
+			.status {
+				padding: 10px;
+				margin: 10px 0;
+				border-radius: 4px;
+				font-weight: bold;
+			}
+			.status.connected {
+				background: #4caf50;
+				color: white;
+			}
+			.status.disconnected {
+				background: #f44336;
+				color: white;
+			}
+			.section {
+				margin: 20px 0;
+				padding: 15px;
+				background: #f9f9f9;
+				border-radius: 4px;
+			}
+			input,
+			button {
+				padding: 10px;
+				margin: 5px;
+				border: 1px solid #ddd;
+				border-radius: 4px;
+			}
+			button {
+				background: #4caf50;
+				color: white;
+				cursor: pointer;
+				border: none;
+			}
+			button:hover {
+				background: #45a049;
+			}
+			#log {
+				background: #1e1e1e;
+				color: #00ff00;
+				padding: 15px;
+				border-radius: 4px;
+				height: 300px;
+				overflow-y: auto;
+				font-family: "Courier New", monospace;
+				font-size: 12px;
+			}
+			.log-entry {
+				margin: 5px 0;
+				padding: 5px;
+			}
+			.log-sent {
+				color: #00bfff;
+			}
+			.log-received {
+				color: #00ff00;
+			}
+			.log-error {
+				color: #ff6b6b;
+			}
+			.info {
+				background: #e3f2fd;
+				padding: 10px;
+				border-left: 4px solid #2196f3;
+				margin: 10px 0;
+			}
+		</style>
+	</head>
+	<body>
+		<div class="container">
+			<h1>🎨 Scribble WebSocket Test Client</h1>
+
+			<div id="status" class="status disconnected">Status: Disconnected</div>
+
+			<div class="info">
+				<strong>Your Info:</strong><br />
+				Player ID: <span id="playerId">-</span><br />
+				Socket ID: <span id="socketId">-</span>
+			</div>
+
+			<!-- Room Operations -->
+			<div class="section">
+				<h3>Room Operations</h3>
+				<input
+					type="text"
+					id="playerName"
+					placeholder="Your Name"
+					value="TestPlayer"
+				/>
+				<button onclick="createRoom()">Create Room</button>
+				<br />
+				<input
+					type="text"
+					id="roomCode"
+					placeholder="Room Code (e.g., ABC123)"
+				/>
+				<button onclick="joinRoom()">Join Room</button>
+				<br />
+				<button onclick="leaveRoom()">Leave Room</button>
+				<button onclick="startGame()">Start Game</button>
+			</div>
+
+			<!-- Drawing Test -->
+			<div class="section">
+				<h3>Drawing Test</h3>
+				<button onclick="sendDrawData()">Send Test Draw</button>
+				<button onclick="clearCanvas()">Clear Canvas</button>
+			</div>
+
+			<!-- Chat Test -->
+			<div class="section">
+				<h3>Chat Test</h3>
+				<input type="text" id="message" placeholder="Type a message" />
+				<button onclick="sendMessage()">Send Message</button>
+			</div>
+
+			<!-- Event Log -->
+			<div class="section">
+				<h3>Event Log</h3>
+				<button onclick="clearLog()">Clear Log</button>
+				<div id="log"></div>
+			</div>
+		</div>
+
+		<script>
+			let socket;
+			let playerIdGlobal = null;
+
+			// Connect to WebSocket server
+			function connect() {
+				socket = io("http://localhost:3000", {
+					transports: ["websocket", "polling"],
+				});
+
+				// Connection events
+				socket.on("connect", () => {
+					updateStatus(true);
+					log("Connected to server", "received");
+					document.getElementById("socketId").textContent = socket.id;
+				});
+
+				socket.on("disconnect", () => {
+					updateStatus(false);
+					log("Disconnected from server", "error");
+				});
+
+				socket.on("connect_error", (error) => {
+					log("Connection error: " + error.message, "error");
+				});
+
+				// Custom events
+				socket.on("connected", (data) => {
+					log(
+						"Received connected event: " + JSON.stringify(data, null, 2),
+						"received",
+					);
+					playerIdGlobal = data.playerId;
+					document.getElementById("playerId").textContent = data.playerId;
+				});
+
+				socket.on("room_created", (data) => {
+					log("Room created: " + JSON.stringify(data, null, 2), "received");
+				});
+
+				socket.on("room_joined", (data) => {
+					log("Room joined: " + JSON.stringify(data, null, 2), "received");
+				});
+
+				socket.on("player_joined", (data) => {
+					log("Player joined: " + JSON.stringify(data, null, 2), "received");
+				});
+
+				socket.on("draw_data", (data) => {
+					log("Received draw data: " + JSON.stringify(data), "received");
+				});
+
+				socket.on("error", (data) => {
+					log("Error: " + JSON.stringify(data, null, 2), "error");
+				});
+
+				// Log all events
+				socket.onAny((event, ...args) => {
+					if (!["connect", "disconnect", "connected"].includes(event)) {
+						log(`Event [${event}]: ${JSON.stringify(args)}`, "received");
+					}
+				});
+			}
+
+			// Room operations
+			function createRoom() {
+				const playerName =
+					document.getElementById("playerName").value || "TestPlayer";
+				const data = { playerName };
+				socket.emit("create_room", data);
+				log("Sent: create_room - " + JSON.stringify(data), "sent");
+			}
+
+			function joinRoom() {
+				const playerName =
+					document.getElementById("playerName").value || "TestPlayer";
+				const code = document.getElementById("roomCode").value;
+				if (!code) {
+					alert("Please enter room code");
+					return;
+				}
+				const data = { code, playerName };
+				socket.emit("join_room", data);
+				log("Sent: join_room - " + JSON.stringify(data), "sent");
+			}
+
+			function leaveRoom() {
+				socket.emit("leave_room");
+				log("Sent: leave_room", "sent");
+			}
+
+			function startGame() {
+				socket.emit("start_game");
+				log("Sent: start_game", "sent");
+			}
+
+			// Drawing
+			function sendDrawData() {
+				const data = {
+					x: Math.random() * 800,
+					y: Math.random() * 600,
+					prevX: Math.random() * 800,
+					prevY: Math.random() * 600,
+					color: "#" + Math.floor(Math.random() * 16777215).toString(16),
+					width: Math.floor(Math.random() * 10) + 1,
+				};
+				socket.emit("draw", data);
+				log("Sent: draw - " + JSON.stringify(data), "sent");
+			}
+
+			function clearCanvas() {
+				socket.emit("clear_canvas");
+				log("Sent: clear_canvas", "sent");
+			}
+
+			// Chat
+			function sendMessage() {
+				const message = document.getElementById("message").value;
+				if (!message) return;
+				const data = { message };
+				socket.emit("send_message", data);
+				log("Sent: send_message - " + JSON.stringify(data), "sent");
+				document.getElementById("message").value = "";
+			}
+
+			// UI helpers
+			function updateStatus(connected) {
+				const statusEl = document.getElementById("status");
+				if (connected) {
+					statusEl.className = "status connected";
+					statusEl.textContent = "Status: Connected";
+				} else {
+					statusEl.className = "status disconnected";
+					statusEl.textContent = "Status: Disconnected";
+				}
+			}
+
+			function log(message, type = "info") {
+				const logEl = document.getElementById("log");
+				const entry = document.createElement("div");
+				entry.className = "log-entry log-" + type;
+				const timestamp = new Date().toLocaleTimeString();
+				entry.textContent = `[${timestamp}] ${message}`;
+				logEl.appendChild(entry);
+				logEl.scrollTop = logEl.scrollHeight;
+			}
+
+			function clearLog() {
+				document.getElementById("log").innerHTML = "";
+			}
+
+			// Auto-connect on page load
+			connect();
+
+			// Enter key support for message input
+			document.getElementById("message").addEventListener("keypress", (e) => {
+				if (e.key === "Enter") sendMessage();
+			});
+		</script>
+	</body>
+</html>
