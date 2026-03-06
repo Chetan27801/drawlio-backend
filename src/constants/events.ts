@@ -13,7 +13,7 @@ export enum ClientEvents {
 	START_GAME = "start_game",
 	SELECT_WORD = "select_word",
 	DRAW = "draw",
-	CLEAN_CANVAS = "clean_canvas",
+	CLEAR_CANVAS = "clear_canvas",
 	SEND_MESSAGE = "send_message",
 	DISCONNECT = "disconnect",
 }

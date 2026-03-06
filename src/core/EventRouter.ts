@@ -17,6 +17,8 @@ import {
 	MessagePayload,
 	SelectWordPayload,
 } from "../types/events";
+import RoomManager from "@game/RoomManager";
+import Player from "@game/Player";
 
 /**
  * Routes incoming websocket events
@@ -24,9 +26,11 @@ import {
 
 class EventRouter {
 	private connectionManager: ConnectionManager;
+	private roomManager: RoomManager;
 
 	constructor(connectionManager: ConnectionManager) {
 		this.connectionManager = connectionManager;
+		this.roomManager = RoomManager.getInstance(connectionManager);
 	}
 
 	/**
@@ -55,7 +59,7 @@ class EventRouter {
 		socket.on(ClientEvents.DRAW, (payload: DrawPayload) =>
 			this.handleDraw(socket, payload),
 		);
-		socket.on(ClientEvents.CLEAN_CANVAS, () => this.handleClearCanvas(socket));
+		socket.on(ClientEvents.CLEAR_CANVAS, () => this.handleClearCanvas(socket));
 
 		//Chat events
 		socket.on(ClientEvents.SEND_MESSAGE, (payload: MessagePayload) =>
@@ -82,19 +86,30 @@ class EventRouter {
 			}
 
 			const data = payload as CreateRoomPayload;
+			const playerId = this.connectionManager.getPlayerId(socket.id);
 
-			//TODO: Day 5 - Call RoomManager.createRoom()
+			if (!playerId) {
+				this.sendError(socket, ErrorMessages.PLAYER_NOT_FOUND);
+				return;
+			}
 
-			//For now, send mock response
-			const mockRoomId = "mock_room_id";
-			this.connectionManager.joinRoom(socket.id, mockRoomId);
+			//check if player is already in a room
+			const existingRoom = this.roomManager.findPlayerRoom(playerId);
 
-			socket.emit(ServerEvents.ROOM_CREATED, {
-				roomId: mockRoomId,
-				code: "ABC123",
-				hostId: socket.id,
-				playersName: data.playerName,
-			});
+			if (existingRoom) {
+				this.sendError(socket, ErrorMessages.PLAYER_ALREADY_IN_ROOM);
+				return;
+			}
+
+			//create room
+			const room = this.roomManager.createRoom(
+				playerId,
+				data.playerName,
+				data.settings,
+			);
+
+			//send response
+			socket.emit(ServerEvents.ROOM_CREATED, room.getRoomData());
 
 			logger.info(`[CREATE_ROOM] Room created successfully`);
 		} catch (error) {
@@ -120,19 +135,36 @@ class EventRouter {
 
 			const data = payload as JoinRoomPayload;
 
-			//TODO: Day 5 - Call RoomManager.getRoomByCode()
-			//For now, send mock response
-			const mockRoomId = "mock_room_id";
-			this.connectionManager.joinRoom(socket.id, mockRoomId);
+			const playerId = this.connectionManager.getPlayerId(socket.id);
 
-			socket.emit(ServerEvents.ROOM_JOINED, {
-				roomId: mockRoomId,
-				code: data.code,
-				playerName: data.playerName,
-				players: [],
-			});
+			if (!playerId) {
+				this.sendError(socket, ErrorMessages.PLAYER_NOT_FOUND);
+				return;
+			}
 
-			logger.info(`[JOIN_ROOM] Room joined successfully`);
+			//find room
+
+			const room = this.roomManager.getRoomByCode(data.code);
+			if (!room) {
+				this.sendError(socket, ErrorMessages.ROOM_NOT_FOUND);
+				return;
+			}
+
+			//create player
+			const player = new Player(playerId, socket.id, data.playerName);
+
+			//add to room
+			const added = room.addPlayer(player);
+
+			if (!added) {
+				this.sendError(socket, ErrorMessages.ROOM_FULL);
+				return;
+			}
+
+			//send response
+			socket.emit(ServerEvents.ROOM_JOINED, room.getRoomData());
+
+			logger.info(`[JOIN_ROOM] Player ${playerId} joined room ${room.code}`);
 		} catch (error) {
 			logger.error("Error handling JOIN_ROOM event", error);
 			this.sendError(socket, ErrorMessages.CONNECTION_ERROR);
@@ -154,9 +186,17 @@ class EventRouter {
 				return;
 			}
 
-			//TODO: Day 5 - Call RoomManager.removePlayer()
-			//For now, send mock response
-			logger.info(`[LEAVE_ROOM] Player ${playerId} left room`);
+			const room = this.roomManager.findPlayerRoom(playerId);
+			if (!room) {
+				this.sendError(socket, ErrorMessages.PLAYER_NOT_IN_ROOM);
+				return;
+			}
+
+			//remove from room
+			room.removePlayer(playerId);
+
+			logger.info(`[LEAVE_ROOM] Player ${playerId} left room ${room.code}`);
+			this.roomManager.cleanupEmptyRooms();
 		} catch (error) {
 			logger.error("Error handling LEAVE_ROOM event", error);
 			this.sendError(socket, ErrorMessages.CONNECTION_ERROR);
@@ -178,8 +218,28 @@ class EventRouter {
 				return;
 			}
 
-			//TODO: Day 5 - Call RoomManager.startGame()
-			//For now, send mock response
+			const room = this.roomManager.findPlayerRoom(playerId);
+
+			if (!room) {
+				this.sendError(socket, ErrorMessages.PLAYER_NOT_IN_ROOM);
+				return;
+			}
+
+			//check if player is host
+			if (!room.isHost(playerId)) {
+				this.sendError(socket, ErrorMessages.NOT_HOST);
+				return;
+			}
+
+			//check if game can start
+			if (!room.canStartGame()) {
+				this.sendError(socket, ErrorMessages.NOT_ENOUGH_PLAYERS);
+				return;
+			}
+
+			//start game
+			room.startGame();
+
 			logger.info(`[START_GAME] Game started for player ${playerId}`);
 		} catch (error) {
 			logger.error("Error handling START_GAME event", error);
@@ -201,8 +261,18 @@ class EventRouter {
 				return;
 			}
 
-			//TODO: Day 5 - Call RoomManager.selectWord()
-			//For now, send mock response
+			const room = this.roomManager.findPlayerRoom(playerId);
+			if (!room) {
+				this.sendError(socket, ErrorMessages.PLAYER_NOT_IN_ROOM);
+				return;
+			}
+
+			const data = payload as SelectWordPayload;
+			const gameEngine = room.getGameEngine();
+
+			//let game engine handle word selection
+			gameEngine.selectWord(data.word, playerId);
+
 			logger.info(`[SELECT_WORD] Word selected by player ${playerId}`);
 		} catch (error) {
 			logger.error("Error handling SELECT_WORD event", error);
@@ -218,29 +288,37 @@ class EventRouter {
 				return;
 			}
 
-			const playerId = this.connectionManager.getPlayerId(socket.id);
-			if (!playerId) {
-				this.sendError(socket, ErrorMessages.PLAYER_NOT_FOUND);
+		const playerId = this.connectionManager.getPlayerId(socket.id);
+		if (!playerId) {
+			this.sendError(socket, ErrorMessages.PLAYER_NOT_FOUND);
+			return;
+		}
+
+		const room = this.roomManager.findPlayerRoom(playerId!);
+			if (!room) {
+				this.sendError(socket, ErrorMessages.PLAYER_NOT_IN_ROOM);
+				return;
 			}
 
 			const data = payload as DrawPayload;
+			const drawingBoard = room.getDrawingBoard();
 
-			//TODO: Day 5 - Call RoomManager.addStroke()
-			//forn now, broadcast to test
+			//add stroke
 
-			const rooms = this.connectionManager.getSocketRooms(socket.id);
-			rooms.forEach((roomId) => {
-				if (roomId !== socket.id) {
-					this.connectionManager.broadcastToRoomExcept(
-						roomId,
-						ServerEvents.DRAW_DATA,
-						data,
-						socket.id,
-					);
-				}
-			});
+			const stroke = {
+				...data,
+				timestamp: Date.now(),
+			};
 
-			logger.debug(`[DRAW] data from ${playerId}`);
+			const added = drawingBoard.addStroke(stroke, playerId!);
+
+			if (added) {
+				//broadcast to all except drawer
+				room.broadcastExcept(playerId!, ServerEvents.DRAW_DATA, stroke);
+			} else {
+				this.sendError(socket, ErrorMessages.NOT_DRAWER);
+			}
+			logger.info(`[DRAW] Stroke added by ${playerId}`);
 		} catch (error) {
 			logger.error("Error handling DRAW event", error);
 			this.sendError(socket, ErrorMessages.CONNECTION_ERROR);
@@ -261,8 +339,25 @@ class EventRouter {
 				return;
 			}
 
-			//TODO: Day 5 - Call RoomManager.clearC()
-			//For now, send mock response
+			const room = this.roomManager.findPlayerRoom(playerId!);
+			if (!room) {
+				this.sendError(socket, ErrorMessages.PLAYER_NOT_IN_ROOM);
+				return;
+			}
+
+			const drawingBoard = room.getDrawingBoard();
+
+			//check if player is drawer
+			if (!drawingBoard.isDrawer(playerId!)) {
+				this.sendError(socket, ErrorMessages.NOT_DRAWER);
+				return;
+			}
+
+			drawingBoard.clearStrokes();
+
+			//broadcast to all except drawer
+			room.broadcast(ServerEvents.CANVAS_CLEARED, {});
+
 			logger.info(`[CLEAR_CANVAS] Canvas cleared for player ${playerId}`);
 		} catch (error) {
 			logger.error("Error handling CLEAR_CANVAS event", error);
@@ -292,13 +387,17 @@ class EventRouter {
 				return;
 			}
 
-			//TODO: Day 5 - Call RoomManager.sendMessage()
-			//For now, send mock response
-			const mockRoomId = "mock_room_id";
-			this.connectionManager.broadcastToRoom(mockRoomId, ServerEvents.MESSAGE, data);
-			logger.info(
-				`[SEND_MESSAGE] Message sent by player ${playerId}: ${data.message}`,
-			);
+			const room = this.roomManager.findPlayerRoom(playerId!);
+			if (!room) {
+				this.sendError(socket, ErrorMessages.PLAYER_NOT_IN_ROOM);
+				return;
+			}
+
+			const gameEngine = room.getGameEngine();
+			gameEngine.handleGuess(playerId!, data.message);
+
+			//if not correct, broadcast as chat message
+			//correct guesses are handled by game engine
 		} catch (error) {
 			logger.error("Error handling SEND_MESSAGE event", error);
 			this.sendError(socket, ErrorMessages.CONNECTION_ERROR);
@@ -316,10 +415,18 @@ class EventRouter {
 			const playerId = this.connectionManager.getPlayerId(socket.id);
 
 			if (playerId) {
-				//TODO: Day 5 - Handle player disconnect in game
+				const room = this.roomManager.findPlayerRoom(playerId!);
+				if (room) {
+					room.removePlayer(playerId!);
+					this.roomManager.cleanupEmptyRooms();
+					logger.info(
+						`[DISCONNECT] Player ${playerId} removed from room ${room.code}`,
+					);
+				}
 			}
 
-			logger.info(`[DISCONNECT] Player ${playerId} disconnected`);
+			//remove from connection manager
+			this.connectionManager.removeConnection(socket.id);
 		} catch (error) {
 			logger.error("Error handling DISCONNECT event", error);
 		}
@@ -328,7 +435,6 @@ class EventRouter {
 	/**
 	 * Send error response to client
 	 */
-
 	private sendError(socket: Socket, message: string, code?: string): void {
 		socket.emit(ServerEvents.ERROR, {
 			message,

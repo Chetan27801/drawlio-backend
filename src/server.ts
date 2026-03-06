@@ -24,6 +24,9 @@ class Server {
 
 		//create web socket server
 		this.webSocketServer = new WebSocketServer(this.httpServer);
+
+		//connect app to websocket server for stats
+		app.setWebSocketServer(this.webSocketServer);
 	}
 
 	/**
@@ -32,7 +35,7 @@ class Server {
 
 	async start(): Promise<void> {
 		try {
-			logger.info("Starting Scribble Backend Server...");
+			logger.info("Starting drawlio Backend Server...");
 
 			//Connect to Redis
 			await this.connectToRedis();

@@ -4,6 +4,7 @@ import helmet from "helmet";
 import compression from "compression";
 import { appConfig } from "@config/app.config";
 import { logger } from "@utils/Logger";
+import WebSocketServer from "@core/WebSocketServer";
 
 /**
  * Express application setup
@@ -11,11 +12,20 @@ import { logger } from "@utils/Logger";
 
 class App {
 	public app: Application;
+	private webSocketServer: WebSocketServer | null = null;
 
 	constructor() {
 		this.app = express();
 		this.setupMiddleware();
 		this.setupRoutes();
+	}
+
+	/**
+	 * Set websockets server reference
+	 */
+
+	setWebSocketServer(webSocketServer: WebSocketServer): void {
+		this.webSocketServer = webSocketServer;
 	}
 
 	/**
@@ -69,13 +79,28 @@ class App {
 		//API info endpoint
 		this.app.get("/api", (_req: Request, res: Response) => {
 			res.json({
-				name: "Scribble Backend API",
+				name: "drawlio Backend API",
 				version: "1.0.0",
 				description: "Real-time multiplayer drawing game",
 				endpoints: {
 					health: "/health",
 					websocket: "ws://localhost:3000",
 				},
+			});
+		});
+
+		this.app.get("/stats", (_req: Request, res: Response) => {
+			if (!this.webSocketServer) {
+				res.status(500).json({
+					error: "WebSocket server not initialized",
+				});
+				return;
+			}
+
+			const stats = this.webSocketServer.getStats();
+			res.json({
+				timestamp: new Date().toISOString(),
+				...stats,
 			});
 		});
 

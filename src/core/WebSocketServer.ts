@@ -5,6 +5,7 @@ import { logger } from "@utils/Logger";
 import ConnectionManager from "./ConnectionManager";
 import EventRouter from "@core/EventRouter";
 import { v4 as uuidv4 } from "uuid";
+import RoomManager from "@game/RoomManager";
 
 /**
  * Main WebSocker server orchestrator
@@ -15,6 +16,8 @@ class WebSocketServer {
 	private httpServer: http.Server;
 	private connectionManager: ConnectionManager;
 	private eventRouter: EventRouter;
+	private roomManager: RoomManager;
+	private cleanupInterval: NodeJS.Timeout | null = null;
 
 	constructor(httpServer: http.Server) {
 		this.httpServer = httpServer;
@@ -30,6 +33,7 @@ class WebSocketServer {
 		});
 		this.connectionManager = new ConnectionManager(this.io);
 		this.eventRouter = new EventRouter(this.connectionManager);
+		this.roomManager = RoomManager.getInstance(this.connectionManager);
 	}
 
 	/**
@@ -41,6 +45,7 @@ class WebSocketServer {
 
 		this.setupMiddleware();
 		this.setupEventHandlers();
+		this.startCleanupInterval();
 
 		logger.info("WebSocket server initialized successfully");
 	}
@@ -91,7 +96,6 @@ class WebSocketServer {
 		const playerId = uuidv4();
 
 		//Add to connection manager
-
 		this.connectionManager.addConnection(socket, playerId);
 
 		//send connection success to client
@@ -103,7 +107,6 @@ class WebSocketServer {
 		});
 
 		//setup event routing for this socket
-
 		this.eventRouter.setupEventHandlers(socket);
 
 		logger.info(`Player ${playerId} connected (Socket: ${socket.id})`);
@@ -113,9 +116,41 @@ class WebSocketServer {
 	}
 
 	/**
-	 * Get Socket.io server instance
+	 * Start periodic cleanup interval
 	 */
 
+	private startCleanupInterval(): void {
+		//run cleanup every 5 minutes
+
+		this.cleanupInterval = setInterval(
+			() => {
+				logger.info("Running periodic cleanup...");
+				this.roomManager.cleanupEmptyRooms();
+
+				const stats = this.roomManager.getStats();
+				logger.info(`Cleanup complete. Stats: ${JSON.stringify(stats)}`);
+			},
+			5 * 60 * 1000,
+		); //5 minutes
+
+		logger.info("Periodic cleanup started (every 5 minutes)");
+	}
+
+	/**
+	 * Stop cleanup interval
+	 */
+
+	private stopCleanupInterval(): void {
+		if (this.cleanupInterval) {
+			clearInterval(this.cleanupInterval);
+			this.cleanupInterval = null;
+			logger.info("Periodic cleanup stopped");
+		}
+	}
+
+	/**
+	 * Get Socket.io server instance
+	 */
 	getIO(): SocketIOServer {
 		return this.io;
 	}
@@ -123,38 +158,74 @@ class WebSocketServer {
 	/**
 	 * Get connection manager instance
 	 */
-
 	getConnectionManager(): ConnectionManager {
 		return this.connectionManager;
 	}
 
 	/**
-	 * Get connected socket count
+	 * Get room manager instance
 	 */
 
+	getRoomManager(): RoomManager {
+		return this.roomManager;
+	}
+
+	/**
+	 * Broadcast to all connected clients
+	 */
+
+	broadcast(event: string, data: any): void {
+		this.io.emit(event, data);
+		logger.debug(`Broadcast to all clients: ${event}`);
+	}
+
+	/**
+	 * Get connected socket count
+	 */
 	getSocketCount(): number {
 		return this.io.sockets.sockets.size;
 	}
 
 	/**
-	 * Shutdown WebSocket server
+	 * Get server stats
 	 */
 
+	getStats(): {
+		connections: number;
+		rooms: any;
+	} {
+		return {
+			connections: this.getSocketCount(),
+			rooms: this.roomManager.getStats(),
+		};
+	}
+
+	/**
+	 * Shutdown WebSocket server
+	 */
 	async shutdown(): Promise<void> {
 		logger.info("Shutting down WebSocket server...");
+
+		//stop cleanup interval
+		this.stopCleanupInterval();
 
 		//close all connections
 		this.connectionManager.clearAll();
 
-		//close server
-		await new Promise<void>((resolve) => {
-			this.io.close(() => {
-				logger.info("WebSocket server closed");
-				resolve();
+		try {
+			await new Promise<void>((resolve, reject) => {
+				this.io.close((error) => {
+					if (error) {
+						return reject(error); // Pass the error to the catch block
+					}
+					logger.info("WebSocket server closed");
+					resolve();
+				});
 			});
-		});
-
-		logger.info("WebSocket server shutdown complete");
+			logger.info("WebSocket server shutdown complete");
+		} catch (error) {
+			logger.error("Failed to close WebSocket server", error);
+		}
 	}
 }
 

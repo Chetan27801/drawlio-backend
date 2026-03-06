@@ -1,5 +1,5 @@
 {
-	"name": "scribble-backend",
+	"name": "drawlio-backend",
 	"version": "1.0.0",
 	"description": "",
 	"main": "index.js",
@@ -10,7 +10,9 @@
 		"docker:up": "docker compose up -d",
 		"docker:down": "docker compose down",
 		"docker:logs": "docker compose logs -f redis",
-		"docker:clean": "docker compose down -v"
+		"docker:clean": "docker compose down -v",
+		"test:classes": "ts-node src/tests/game-classes-test.ts",
+		"test:flow": "ts-node src/tests/game-flow-test.ts"
 	},
 	"keywords": [],
 	"author": "",
