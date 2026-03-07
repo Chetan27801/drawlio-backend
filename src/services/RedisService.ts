@@ -12,15 +12,25 @@ class RedisService {
 	private isConnected: boolean = false;
 
 	constructor() {
-		this.client = new Redis({
-			host: redisConfig.host,
-			port: redisConfig.port,
-			password: redisConfig.password,
-			db: redisConfig.db,
-			retryStrategy: redisConfig.retryStrategy,
-			maxRetriesPerRequest: redisConfig.maxRetriesPerRequest,
-			enableReadyCheck: redisConfig.enableReadyCheck,
-		});
+		if (redisConfig.url) {
+			logger.info("Using Redis URL: ", redisConfig.url);
+			this.client = new Redis(redisConfig.url, {
+				retryStrategy: redisConfig.retryStrategy,
+				maxRetriesPerRequest: redisConfig.maxRetriesPerRequest,
+				enableReadyCheck: redisConfig.enableReadyCheck,
+			});
+		} else {
+			logger.info("Using Redis host: ", redisConfig.host);
+			this.client = new Redis({
+				host: redisConfig.host,
+				port: redisConfig.port,
+				password: redisConfig.password,
+				db: redisConfig.db,
+				retryStrategy: redisConfig.retryStrategy,
+				maxRetriesPerRequest: redisConfig.maxRetriesPerRequest,
+				enableReadyCheck: redisConfig.enableReadyCheck,
+			});
+		}
 
 		this.setupEventHandlers();
 	}

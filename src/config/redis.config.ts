@@ -8,6 +8,10 @@ dotenv.config();
  */
 
 export const redisConfig = {
+	// Connection URL (preferred for production)
+	url: process.env.REDIS_URL,
+
+	// Individual components (fallback for local development)
 	host: process.env.REDIS_HOST || "localhost",
 	port: parseInt(process.env.REDIS_PORT || "6379", 10),
 	password: process.env.REDIS_PASSWORD || undefined,
