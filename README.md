@@ -1,1 +1,1 @@
-Drawlio is a **real-time multiplayer drawing and guessing game** (similar to Skribbl.io / Pictionary)
+Drawlio is a **real-time multiplayer drawing and guessing game** (similar to Skribbl.io / Pictionary). Players join rooms, take turns drawing a word on a shared canvas while other players guess the word via chat. It features a turn-based round system, real-time canvas synchronization, a scoring engine, hint reveals, and lobby management — all built with **WebSockets** for sub-second latency.
